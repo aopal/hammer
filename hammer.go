@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 
 	"runtime"
@@ -61,12 +62,17 @@ func getSettings() *hammerSettings {
 	return &settings
 }
 
+func usage() {
+	fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] <url> [urls...]\n", os.Args[0])
+	flag.PrintDefaults()
+}
+
 func logStats(n int, startTime time.Time) {
 	t := time.Now()
 	elapsed := t.Sub(startTime)
 	avgRate := float64(n) / float64(elapsed/time.Millisecond) * 1000.0 * 60.0
 
-	fmt.Printf("\rCompleted at least %d iterations in %v (average %0.2f iterations/minute)...", n, elapsed.Round(1000*time.Millisecond), avgRate)
+	fmt.Printf("\rCompleted at %d total requests in %v (average %0.2f requests/minute)...", n, elapsed.Round(1000*time.Millisecond), avgRate)
 }
 
 // Make a request against a url
@@ -90,7 +96,7 @@ func doRequest(settings *hammerSettings, i int) {
 		return
 	}
 
-	if res.StatusCode != 200 && res.StatusCode != 404 {
+	if res.StatusCode != 200 {
 		fmt.Println("\nReceived non 200 response:", res.StatusCode, url)
 	}
 
@@ -101,7 +107,6 @@ func doRequest(settings *hammerSettings, i int) {
 	}()
 
 	if settings.delay != 0 {
-		fmt.Println("sleeping")
 		time.Sleep(settings.delay)
 	}
 }
@@ -126,6 +131,7 @@ func loadTest(settings *hammerSettings) {
 }
 
 func main() {
+	flag.Usage = usage
 	settings := getSettings()
 	loadTest(settings)
 }
