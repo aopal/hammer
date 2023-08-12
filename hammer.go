@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,7 +28,7 @@ type hammerSettings struct {
 	useHTTP2          bool
 }
 
-func getSettings() *hammerSettings {
+func getSettings() (*hammerSettings, error) {
 	settings := hammerSettings{
 		requestHeaders: make(http.Header),
 	}
@@ -37,8 +38,7 @@ func getSettings() *hammerSettings {
 	flag.DurationVar(&settings.delay, "d", 0, "Delay to wait after making a request")
 	flag.BoolVar(&settings.useHTTP2, "http2", false, "Use HTTP/2 for requests")
 	flag.Func("header", "Set a request header in the form \"header-name: header-value\" (multiple invocations allowed)", func(str string) error {
-
-		h := strings.Split(str, ":")
+		h := strings.SplitN(str, ":", 2)
 		if len(h) != 2 {
 			return fmt.Errorf("Header must be in the form \"header-name: header-value\"")
 		}
@@ -52,14 +52,17 @@ func getSettings() *hammerSettings {
 
 	// post process flags
 	settings.urls = flag.Args()
+	if len(settings.urls) == 0 {
+		return nil, errors.New("must specify at least one url")
+	}
 
 	settings.sem = semaphore.NewWeighted(int64(settings.concurrencyFactor))
 	settings.client = &http.Client{}
 	if settings.useHTTP2 {
-		settings.client.Transport = &http2.Transport{}
+		settings.client.Transport = &http2.Transport{AllowHTTP: true}
 	}
 
-	return &settings
+	return &settings, nil
 }
 
 func usage() {
@@ -72,7 +75,7 @@ func logStats(n int, startTime time.Time) {
 	elapsed := t.Sub(startTime)
 	avgRate := float64(n) / float64(elapsed/time.Millisecond) * 1000.0 * 60.0
 
-	fmt.Printf("\rCompleted at %d total requests in %v (average %0.2f requests/minute)...", n, elapsed.Round(1000*time.Millisecond), avgRate)
+	fmt.Printf("\rCompleted %d total requests in %v (average %0.2f requests/minute)...", n, elapsed.Round(1000*time.Millisecond), avgRate)
 }
 
 // Make a request against a url
@@ -96,7 +99,7 @@ func doRequest(settings *hammerSettings, i int) {
 		return
 	}
 
-	if res.StatusCode != 200 {
+	if res.StatusCode != 200 && res.StatusCode != 404 {
 		fmt.Println("\nReceived non 200 response:", res.StatusCode, url)
 	}
 
@@ -132,6 +135,12 @@ func loadTest(settings *hammerSettings) {
 
 func main() {
 	flag.Usage = usage
-	settings := getSettings()
+	settings, err := getSettings()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Incorrect usage: %v\n\n", err)
+		flag.Usage()
+		return
+	}
+
 	loadTest(settings)
 }
